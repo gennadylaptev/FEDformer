@@ -30,11 +30,11 @@ class MultiWaveletTransform(nn.Module):
         c=128,  # num of channel per each MW dim
         nCZ=1,
         L=0,
-        base='legendre',
+        base="legendre",
         attention_dropout=0.1,
     ):
         super(MultiWaveletTransform, self).__init__()
-        print('base', base)
+        print("base", base)
         self.k = k
         self.c = c
         self.L = L
@@ -46,13 +46,13 @@ class MultiWaveletTransform(nn.Module):
         self.MWT_CZ = nn.ModuleList(MWT_CZ1d(k, alpha, L, c, base) for i in range(nCZ))
 
     def forward(self, queries, keys, values, attn_mask):
-        """ we pass multihead projected input
+        """we pass multihead projected input
         Apply MWT only to values (!)
         """
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
         if L > S:
-            zeros = torch.zeros_like(queries[:, :(L - S), :]).float()
+            zeros = torch.zeros_like(queries[:, : (L - S), :]).float()
             values = torch.cat([values, zeros], dim=1)
             keys = torch.cat([keys, zeros], dim=1)
         else:
@@ -86,15 +86,25 @@ class MultiWaveletCross(nn.Module):
     1D Multiwavelet Cross Attention layer.
     """
 
-    def __init__(self, in_channels, out_channels, seq_len_q, seq_len_kv, modes, c=64,
-                 k=8, ich=512,
-                 L=0,
-                 base='legendre',
-                 mode_select_method='random',
-                 initializer=None, activation='tanh',
-                 **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        seq_len_q,
+        seq_len_kv,
+        modes,
+        c=64,
+        k=8,
+        ich=512,
+        L=0,
+        base="legendre",
+        mode_select_method="random",
+        initializer=None,
+        activation="tanh",
+        **kwargs,
+    ):
         super(MultiWaveletCross, self).__init__()
-        print('base', base)
+        print("base", base)
 
         self.c = c
         self.k = k
@@ -111,28 +121,48 @@ class MultiWaveletCross(nn.Module):
         G1r[np.abs(G1r) < 1e-8] = 0
         self.max_item = 3
 
-        self.attn1 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
-        self.attn2 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
-        self.attn3 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
-        self.attn4 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
+        self.attn1 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
+        self.attn2 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
+        self.attn3 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
+        self.attn4 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
         self.T0 = nn.Linear(k, k)
-        self.register_buffer('ec_s', torch.Tensor(
-            np.concatenate((H0.T, H1.T), axis=0)))
-        self.register_buffer('ec_d', torch.Tensor(
-            np.concatenate((G0.T, G1.T), axis=0)))
+        self.register_buffer("ec_s", torch.Tensor(np.concatenate((H0.T, H1.T), axis=0)))
+        self.register_buffer("ec_d", torch.Tensor(np.concatenate((G0.T, G1.T), axis=0)))
 
-        self.register_buffer('rc_e', torch.Tensor(
-            np.concatenate((H0r, G0r), axis=0)))
-        self.register_buffer('rc_o', torch.Tensor(
-            np.concatenate((H1r, G1r), axis=0)))
+        self.register_buffer("rc_e", torch.Tensor(np.concatenate((H0r, G0r), axis=0)))
+        self.register_buffer("rc_o", torch.Tensor(np.concatenate((H1r, G1r), axis=0)))
 
         self.Lk = nn.Linear(ich, c * k)
         self.Lq = nn.Linear(ich, c * k)
@@ -155,7 +185,7 @@ class MultiWaveletCross(nn.Module):
         v = v.view(v.shape[0], v.shape[1], self.c, self.k)
 
         if N > S:
-            zeros = torch.zeros_like(q[:, :(N - S), :]).float()
+            zeros = torch.zeros_like(q[:, : (N - S), :]).float()
             v = torch.cat([v, zeros], dim=1)
             k = torch.cat([k, zeros], dim=1)
         else:
@@ -164,9 +194,9 @@ class MultiWaveletCross(nn.Module):
 
         ns = math.floor(np.log2(N))
         nl = pow(2, math.ceil(np.log2(N)))
-        extra_q = q[:, 0:nl - N, :, :]
-        extra_k = k[:, 0:nl - N, :, :]
-        extra_v = v[:, 0:nl - N, :, :]
+        extra_q = q[:, 0 : nl - N, :, :]
+        extra_k = k[:, 0 : nl - N, :, :]
+        extra_v = v[:, 0 : nl - N, :, :]
         q = torch.cat([q, extra_q], 1)
         k = torch.cat([k, extra_k], 1)
         v = torch.cat([v, extra_v], 1)
@@ -200,7 +230,10 @@ class MultiWaveletCross(nn.Module):
             dk, sk = Ud_k[i], Us_k[i]
             dq, sq = Ud_q[i], Us_q[i]
             dv, sv = Ud_v[i], Us_v[i]
-            Ud += [self.attn1(dq[0], dk[0], dv[0], mask)[0] + self.attn2(dq[1], dk[1], dv[1], mask)[0]]
+            Ud += [
+                self.attn1(dq[0], dk[0], dv[0], mask)[0]
+                + self.attn2(dq[1], dk[1], dv[1], mask)[0]
+            ]
             Us += [self.attn3(sq, sk, sv, mask)[0]]
         v = self.attn4(q, k, v, mask)[0]
 
@@ -213,9 +246,13 @@ class MultiWaveletCross(nn.Module):
         return (v.contiguous(), None)
 
     def wavelet_transform(self, x):
-        xa = torch.cat([x[:, ::2, :, :],
-                        x[:, 1::2, :, :],
-                        ], -1)
+        xa = torch.cat(
+            [
+                x[:, ::2, :, :],
+                x[:, 1::2, :, :],
+            ],
+            -1,
+        )
         d = torch.matmul(xa, self.ec_d)
         s = torch.matmul(xa, self.ec_s)
         return d, s
@@ -226,18 +263,25 @@ class MultiWaveletCross(nn.Module):
         x_e = torch.matmul(x, self.rc_e)
         x_o = torch.matmul(x, self.rc_o)
 
-        x = torch.zeros(B, N * 2, c, self.k,
-                        device=x.device)
+        x = torch.zeros(B, N * 2, c, self.k, device=x.device)
         x[..., ::2, :, :] = x_e
         x[..., 1::2, :, :] = x_o
         return x
 
 
 class FourierCrossAttentionW(nn.Module):
-    def __init__(self, in_channels, out_channels, seq_len_q, seq_len_kv, modes=16, activation='tanh',
-                 mode_select_method='random'):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        seq_len_q,
+        seq_len_kv,
+        modes=16,
+        activation="tanh",
+        mode_select_method="random",
+    ):
         super(FourierCrossAttentionW, self).__init__()
-        print('corss fourier correlation used!')
+        print("corss fourier correlation used!")
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.modes1 = modes
@@ -253,23 +297,29 @@ class FourierCrossAttentionW(nn.Module):
         self.index_k_v = list(range(0, min(int(xv.shape[3] // 2), self.modes1)))
 
         # Compute Fourier coefficients
-        xq_ft_ = torch.zeros(B, H, E, len(self.index_q), device=xq.device, dtype=torch.cfloat)
+        xq_ft_ = torch.zeros(
+            B, H, E, len(self.index_q), device=xq.device, dtype=torch.cfloat
+        )
         xq_ft = torch.fft.rfft(xq, dim=-1)
         for i, j in enumerate(self.index_q):
             xq_ft_[:, :, :, i] = xq_ft[:, :, :, j]
 
-        xk_ft_ = torch.zeros(B, H, E, len(self.index_k_v), device=xq.device, dtype=torch.cfloat)
+        xk_ft_ = torch.zeros(
+            B, H, E, len(self.index_k_v), device=xq.device, dtype=torch.cfloat
+        )
         xk_ft = torch.fft.rfft(xk, dim=-1)
         for i, j in enumerate(self.index_k_v):
             xk_ft_[:, :, :, i] = xk_ft[:, :, :, j]
-        xqk_ft = (torch.einsum("bhex,bhey->bhxy", xq_ft_, xk_ft_))
-        if self.activation == 'tanh':
+        xqk_ft = torch.einsum("bhex,bhey->bhxy", xq_ft_, xk_ft_)
+        if self.activation == "tanh":
             xqk_ft = xqk_ft.tanh()
-        elif self.activation == 'softmax':
+        elif self.activation == "softmax":
             xqk_ft = torch.softmax(abs(xqk_ft), dim=-1)
             xqk_ft = torch.complex(xqk_ft, torch.zeros_like(xqk_ft))
         else:
-            raise Exception('{} actiation function is not implemented'.format(self.activation))
+            raise Exception(
+                "{} actiation function is not implemented".format(self.activation)
+            )
         xqkv_ft = torch.einsum("bhxy,bhey->bhex", xqk_ft, xk_ft_)
 
         xqkvw = xqkv_ft
@@ -277,13 +327,16 @@ class FourierCrossAttentionW(nn.Module):
         for i, j in enumerate(self.index_q):
             out_ft[:, :, :, j] = xqkvw[:, :, :, i]
 
-        out = torch.fft.irfft(out_ft / self.in_channels / self.out_channels, n=xq.size(-1)).permute(0, 3, 2, 1)
+        out = torch.fft.irfft(
+            out_ft / self.in_channels / self.out_channels, n=xq.size(-1)
+        ).permute(0, 3, 2, 1)
         # size = [B, L, H, E]
         return (out, None)
 
 
 class sparseKernelFT1d(nn.Module):
-    """ FEB-f block; loss-pass filter; reweighting of channels """
+    """FEB-f block; loss-pass filter; reweighting of channels"""
+
     def __init__(
         self,
         k,
@@ -296,7 +349,7 @@ class sparseKernelFT1d(nn.Module):
         super(sparseKernelFT1d, self).__init__()
 
         self.modes1 = alpha
-        self.scale = (1 / (c * k * c * k))
+        self.scale = 1 / (c * k * c * k)
 
         # trainable weights (linear projection for each channel)
         self.weights1 = nn.Parameter(
@@ -306,12 +359,12 @@ class sparseKernelFT1d(nn.Module):
         self.k = k
 
     def compl_mul1d(self, x, weights):
-        """ Change num of channels """
+        """Change num of channels"""
         # (batch, in_channel, x ), (in_channel, out_channel, x) -> (batch, out_channel, x)
         return torch.einsum("bix,iox->box", x, weights)
 
     def forward(self, x):
-        """ (B, N, c, k) -> (B, N, c, k) """
+        """(B, N, c, k) -> (B, N, c, k)"""
         # B: batch, N: timeseries length, c: channels, k: multiwavelet dim
         B, N, c, k = x.shape  # (B, N, c, k)
 
@@ -335,13 +388,14 @@ class sparseKernelFT1d(nn.Module):
 
 class MWT_CZ1d(nn.Module):
     """ """
+
     def __init__(
         self,
         k=3,  # multiwavelet dim
         alpha=64,  # num of modes in FEB-f blocks
         L=0,  # num of skipped smaller scales
-        c=1, # num of channels per MW dim
-        base='legendre',
+        c=1,  # num of channels per MW dim
+        base="legendre",
         initializer=None,
         **kwargs,
     ):
@@ -373,16 +427,12 @@ class MWT_CZ1d(nn.Module):
         self.T0 = nn.Linear(k, k)
 
         # decomposition filters
-        self.register_buffer('ec_s', torch.Tensor(
-            np.concatenate((H0.T, H1.T), axis=0)))
-        self.register_buffer('ec_d', torch.Tensor(
-            np.concatenate((G0.T, G1.T), axis=0)))
+        self.register_buffer("ec_s", torch.Tensor(np.concatenate((H0.T, H1.T), axis=0)))
+        self.register_buffer("ec_d", torch.Tensor(np.concatenate((G0.T, G1.T), axis=0)))
 
         # reconstruction filters
-        self.register_buffer('rc_e', torch.Tensor(
-            np.concatenate((H0r, G0r), axis=0)))
-        self.register_buffer('rc_o', torch.Tensor(
-            np.concatenate((H1r, G1r), axis=0)))
+        self.register_buffer("rc_e", torch.Tensor(np.concatenate((H0r, G0r), axis=0)))
+        self.register_buffer("rc_o", torch.Tensor(np.concatenate((H1r, G1r), axis=0)))
 
     def forward(self, x):
         B, N, c, k = x.shape  # (B, N, k)
@@ -393,7 +443,7 @@ class MWT_CZ1d(nn.Module):
         nl = pow(2, math.ceil(np.log2(N)))
 
         # add zeros so length is some power of 2
-        extra_x = x[:, 0:nl - N, :, :]
+        extra_x = x[:, 0 : nl - N, :, :]
         x = torch.cat([x, extra_x], 1)
 
         Ud = torch.jit.annotate(List[Tensor], [])
@@ -424,11 +474,15 @@ class MWT_CZ1d(nn.Module):
         return x
 
     def wavelet_transform(self, x):
-        """ One iteration of fast multiwavelet transform """
+        """One iteration of fast multiwavelet transform"""
         # donwsample x; cat two downsampled series
-        xa = torch.cat([x[:, ::2, :, :],
-                        x[:, 1::2, :, :],
-                        ], -1)
+        xa = torch.cat(
+            [
+                x[:, ::2, :, :],
+                x[:, 1::2, :, :],
+            ],
+            -1,
+        )
         # multuply by filters to get MWT coefficients
         d = torch.matmul(xa, self.ec_d)
         s = torch.matmul(xa, self.ec_s)
@@ -441,8 +495,7 @@ class MWT_CZ1d(nn.Module):
         x_e = torch.matmul(x, self.rc_e)
         x_o = torch.matmul(x, self.rc_o)
 
-        x = torch.zeros(B, N * 2, c, self.k,
-                        device=x.device)
+        x = torch.zeros(B, N * 2, c, self.k, device=x.device)
 
         x[..., ::2, :, :] = x_e
         x[..., 1::2, :, :] = x_o

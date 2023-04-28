@@ -90,7 +90,7 @@ class Dataset_ETT_hour(Dataset):
             data = df_data.values
 
         # create timestamps
-        df_stamp = df_raw[["date"]][border1 : border2]
+        df_stamp = df_raw[["date"]][border1:border2]
         df_stamp["date"] = pd.to_datetime(df_stamp.date)
 
         if self.timeenc == 0:
@@ -122,12 +122,12 @@ class Dataset_ETT_hour(Dataset):
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        seq_x = self.data_x[s_begin : s_end]
-        seq_y = self.data_y[r_begin : r_end]
+        seq_x = self.data_x[s_begin:s_end]
+        seq_y = self.data_y[r_begin:r_end]
 
         # get timestamps for x and y
-        seq_x_mark = self.data_stamp[s_begin : s_end]
-        seq_y_mark = self.data_stamp[r_begin : r_end]
+        seq_x_mark = self.data_stamp[s_begin:s_end]
+        seq_y_mark = self.data_stamp[r_begin:r_end]
 
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
@@ -135,7 +135,7 @@ class Dataset_ETT_hour(Dataset):
         return len(self.data_x) - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
-        """ inverse scaling """
+        """inverse scaling"""
         return self.scaler.inverse_transform(data)
 
 

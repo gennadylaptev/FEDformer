@@ -54,7 +54,7 @@ class TokenEmbedding(nn.Module):
                 )
 
     def forward(self, x):
-        """ apply 1d conv """
+        """apply 1d conv"""
         x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
         return x
 
@@ -117,7 +117,8 @@ class TemporalEmbedding(nn.Module):
 
 
 class TimeFeatureEmbedding(nn.Module):
-    """ Map timestamp to vector by a linear Layer w/o bias """
+    """Map timestamp to vector by a linear Layer w/o bias"""
+
     def __init__(self, d_model, embed_type="timeF", freq="h"):
         super(TimeFeatureEmbedding, self).__init__()
 

@@ -70,7 +70,9 @@ class Model(nn.Module):
                 base=configs.base,
             )
             decoder_self_att = MultiWaveletTransform(
-                ich=configs.d_model, L=configs.L, base=configs.base,
+                ich=configs.d_model,
+                L=configs.L,
+                base=configs.base,
             )
             # decoder cross-attention module
             decoder_cross_att = MultiWaveletCross(
@@ -121,7 +123,9 @@ class Model(nn.Module):
             [
                 EncoderLayer(
                     AutoCorrelationLayer(
-                        encoder_self_att, configs.d_model, configs.n_heads,
+                        encoder_self_att,
+                        configs.d_model,
+                        configs.n_heads,
                     ),
                     configs.d_model,
                     configs.d_ff,

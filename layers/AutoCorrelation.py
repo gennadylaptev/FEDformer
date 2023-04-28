@@ -185,7 +185,8 @@ class AutoCorrelation(nn.Module):
 
 
 class AutoCorrelationLayer(nn.Module):
-    """ Combines self/cross-attention layer and linear projections """
+    """Combines self/cross-attention layer and linear projections"""
+
     def __init__(
         self,
         correlation,  # attention module

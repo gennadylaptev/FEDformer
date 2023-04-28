@@ -1,3 +1,7 @@
 *.zip
 dataset/
+test_results/
+checkpoints/
 __pycache__
+result.txt
+results/
