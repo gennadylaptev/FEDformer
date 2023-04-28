@@ -7,12 +7,15 @@ from torch.nn.functional import interpolate
 
 
 def decor_time(func):
+    """decorator for printing out time of execution"""
+
     def func2(*args, **kw):
         now = time.time()
         y = func(*args, **kw)
         t = time.time() - now
-        print('call <{}>, time={}'.format(func.__name__, t))
+        print("call <{}>, time={}".format(func.__name__, t))
         return y
+
     return func2
 
 
@@ -23,9 +26,18 @@ class AutoCorrelation(nn.Module):
     (2) time delay aggregation
     This block can replace the self-attention family mechanism seamlessly.
     """
-    def __init__(self, mask_flag=True, factor=1, scale=None, attention_dropout=0.1, output_attention=False, configs=None):
+
+    def __init__(
+        self,
+        mask_flag=True,
+        factor=1,
+        scale=None,
+        attention_dropout=0.1,
+        output_attention=False,
+        configs=None,
+    ):
         super(AutoCorrelation, self).__init__()
-        print('Autocorrelation used !')
+        print("Autocorrelation used !")
         self.factor = factor
         self.scale = scale
         self.mask_flag = mask_flag
@@ -55,8 +67,13 @@ class AutoCorrelation(nn.Module):
         delays_agg = torch.zeros_like(values).float()
         for i in range(top_k):
             pattern = torch.roll(tmp_values, -int(index[i]), -1)
-            delays_agg = delays_agg + pattern * \
-                         (tmp_corr[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, head, channel, length))
+            delays_agg = delays_agg + pattern * (
+                tmp_corr[:, i]
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .repeat(1, head, channel, length)
+            )
         return delays_agg  # size=[B, H, d, S]
 
     def time_delay_agg_inference(self, values, corr):
@@ -69,7 +86,14 @@ class AutoCorrelation(nn.Module):
         channel = values.shape[2]
         length = values.shape[3]
         # index init
-        init_index = torch.arange(length).unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat(batch, head, channel, 1).cuda()
+        init_index = (
+            torch.arange(length)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .repeat(batch, head, channel, 1)
+            .cuda()
+        )
         # find top k
         top_k = int(self.factor * math.log(length))
         mean_value = torch.mean(torch.mean(corr, dim=1), dim=1)
@@ -81,10 +105,17 @@ class AutoCorrelation(nn.Module):
         tmp_values = values.repeat(1, 1, 1, 2)
         delays_agg = torch.zeros_like(values).float()
         for i in range(top_k):
-            tmp_delay = init_index + delay[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, head, channel, length)
+            tmp_delay = init_index + delay[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(
+                1
+            ).repeat(1, head, channel, length)
             pattern = torch.gather(tmp_values, dim=-1, index=tmp_delay)
-            delays_agg = delays_agg + pattern * \
-                         (tmp_corr[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, head, channel, length))
+            delays_agg = delays_agg + pattern * (
+                tmp_corr[:, i]
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .repeat(1, head, channel, length)
+            )
         return delays_agg
 
     def time_delay_agg_full(self, values, corr):
@@ -96,7 +127,14 @@ class AutoCorrelation(nn.Module):
         channel = values.shape[2]
         length = values.shape[3]
         # index init
-        init_index = torch.arange(length).unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat(batch, head, channel, 1).cuda()
+        init_index = (
+            torch.arange(length)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .repeat(batch, head, channel, 1)
+            .cuda()
+        )
         # find top k
         top_k = int(self.factor * math.log(length))
         weights = torch.topk(corr, top_k, dim=-1)[0]
@@ -115,8 +153,9 @@ class AutoCorrelation(nn.Module):
     def forward(self, queries, keys, values, attn_mask):
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
+
         if L > S:
-            zeros = torch.zeros_like(queries[:, :(L - S), :]).float()
+            zeros = torch.zeros_like(queries[:, : (L - S), :]).float()
             values = torch.cat([values, zeros], dim=1)
             keys = torch.cat([keys, zeros], dim=1)
         else:
@@ -131,9 +170,13 @@ class AutoCorrelation(nn.Module):
 
         # time delay agg
         if self.training:
-            V = self.time_delay_agg_training(values.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)
+            V = self.time_delay_agg_training(
+                values.permute(0, 2, 3, 1).contiguous(), corr
+            ).permute(0, 3, 1, 2)
         else:
-            V = self.time_delay_agg_inference(values.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)
+            V = self.time_delay_agg_inference(
+                values.permute(0, 2, 3, 1).contiguous(), corr
+            ).permute(0, 3, 1, 2)
 
         if self.output_attention:
             return (V.contiguous(), corr.permute(0, 3, 1, 2))
@@ -142,35 +185,44 @@ class AutoCorrelation(nn.Module):
 
 
 class AutoCorrelationLayer(nn.Module):
-    def __init__(self, correlation, d_model, n_heads, d_keys=None,
-                 d_values=None):
+    """ Combines self/cross-attention layer and linear projections """
+    def __init__(
+        self,
+        correlation,  # attention module
+        d_model,
+        n_heads,
+        d_keys=None,
+        d_values=None,
+    ):
         super(AutoCorrelationLayer, self).__init__()
 
         d_keys = d_keys or (d_model // n_heads)
         d_values = d_values or (d_model // n_heads)
 
+        self.n_heads = n_heads
         self.inner_correlation = correlation
+        # linear projection layers
         self.query_projection = nn.Linear(d_model, d_keys * n_heads)
         self.key_projection = nn.Linear(d_model, d_keys * n_heads)
         self.value_projection = nn.Linear(d_model, d_values * n_heads)
+        # final projection of concated output of different heads
         self.out_projection = nn.Linear(d_values * n_heads, d_model)
-        self.n_heads = n_heads
 
     def forward(self, queries, keys, values, attn_mask):
         B, L, _ = queries.shape
         _, S, _ = keys.shape
         H = self.n_heads
 
+        # project and reshape
         queries = self.query_projection(queries).view(B, L, H, -1)
         keys = self.key_projection(keys).view(B, S, H, -1)
         values = self.value_projection(values).view(B, S, H, -1)
 
-        out, attn = self.inner_correlation(
-            queries,
-            keys,
-            values,
-            attn_mask
-        )
+        # run attention stuff
+        out, attn = self.inner_correlation(queries, keys, values, attn_mask)
 
+        # reshape back
         out = out.view(B, L, -1)
+
+        # final linear layer
         return self.out_projection(out), attn

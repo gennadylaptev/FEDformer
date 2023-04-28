@@ -22,8 +22,17 @@ class MultiWaveletTransform(nn.Module):
     1D multiwavelet block.
     """
 
-    def __init__(self, ich=1, k=8, alpha=16, c=128,
-                 nCZ=1, L=0, base='legendre', attention_dropout=0.1):
+    def __init__(
+        self,
+        ich=1,  # input channels
+        k=8,  # multiwavelet dimensionality
+        alpha=16,
+        c=128,  # num of channel per each MW dim
+        nCZ=1,
+        L=0,
+        base='legendre',
+        attention_dropout=0.1,
+    ):
         super(MultiWaveletTransform, self).__init__()
         print('base', base)
         self.k = k
@@ -33,9 +42,13 @@ class MultiWaveletTransform(nn.Module):
         self.Lk0 = nn.Linear(ich, c * k)
         self.Lk1 = nn.Linear(c * k, ich)
         self.ich = ich
+        # multiwavelet transform modules
         self.MWT_CZ = nn.ModuleList(MWT_CZ1d(k, alpha, L, c, base) for i in range(nCZ))
 
     def forward(self, queries, keys, values, attn_mask):
+        """ we pass multihead projected input
+        Apply MWT only to values (!)
+        """
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
         if L > S:
@@ -45,16 +58,26 @@ class MultiWaveletTransform(nn.Module):
         else:
             values = values[:, :L, :, :]
             keys = keys[:, :L, :, :]
+
+        # reshape
         values = values.view(B, L, -1)
 
+        # apply linear proj to values, reshape
         V = self.Lk0(values).view(B, L, self.c, -1)
+
+        # run nCZ iteration of wavelet decomposition
         for i in range(self.nCZ):
             V = self.MWT_CZ[i](V)
+            # if not last, apply nonlinearity
             if i < self.nCZ - 1:
                 V = F.relu(V)
 
+        # one more linear projection
         V = self.Lk1(V.view(B, L, -1))
+
+        # reshape to multihead (original shape)
         V = V.view(B, L, -1, D)
+
         return (V.contiguous(), None)
 
 
@@ -260,74 +283,102 @@ class FourierCrossAttentionW(nn.Module):
 
 
 class sparseKernelFT1d(nn.Module):
-    def __init__(self,
-                 k, alpha, c=1,
-                 nl=1,
-                 initializer=None,
-                 **kwargs):
+    """ FEB-f block; loss-pass filter; reweighting of channels """
+    def __init__(
+        self,
+        k,
+        alpha,  # num of low-freq Fourier modes
+        c=1,
+        nl=1,
+        initializer=None,
+        **kwargs,
+    ):
         super(sparseKernelFT1d, self).__init__()
 
         self.modes1 = alpha
         self.scale = (1 / (c * k * c * k))
-        self.weights1 = nn.Parameter(self.scale * torch.rand(c * k, c * k, self.modes1, dtype=torch.cfloat))
+
+        # trainable weights (linear projection for each channel)
+        self.weights1 = nn.Parameter(
+            self.scale * torch.rand(c * k, c * k, self.modes1, dtype=torch.cfloat)
+        )
         self.weights1.requires_grad = True
         self.k = k
 
     def compl_mul1d(self, x, weights):
+        """ Change num of channels """
         # (batch, in_channel, x ), (in_channel, out_channel, x) -> (batch, out_channel, x)
         return torch.einsum("bix,iox->box", x, weights)
 
     def forward(self, x):
+        """ (B, N, c, k) -> (B, N, c, k) """
+        # B: batch, N: timeseries length, c: channels, k: multiwavelet dim
         B, N, c, k = x.shape  # (B, N, c, k)
 
+        # reshape and reshape to(B, F, N), where F - total number of features per step
         x = x.view(B, N, -1)
         x = x.permute(0, 2, 1)
-        x_fft = torch.fft.rfft(x)
-        # Multiply relevant Fourier modes
+        x_fft = torch.fft.rfft(x)  # FFT
+
+        # Multiply relevant Fourier modes (loss-pass filter)
         l = min(self.modes1, N // 2 + 1)
-        # l = N//2+1
         out_ft = torch.zeros(B, c * k, N // 2 + 1, device=x.device, dtype=torch.cfloat)
         out_ft[:, :, :l] = self.compl_mul1d(x_fft[:, :, :l], self.weights1[:, :, :l])
+
+        # reverse transform to timeseries of the original length N
         x = torch.fft.irfft(out_ft, n=N)
+
+        # reshape back to the original shape
         x = x.permute(0, 2, 1).view(B, N, c, k)
         return x
 
 
-# ##
 class MWT_CZ1d(nn.Module):
-    def __init__(self,
-                 k=3, alpha=64,
-                 L=0, c=1,
-                 base='legendre',
-                 initializer=None,
-                 **kwargs):
+    """ """
+    def __init__(
+        self,
+        k=3,  # multiwavelet dim
+        alpha=64,  # num of modes in FEB-f blocks
+        L=0,  # num of skipped smaller scales
+        c=1, # num of channels per MW dim
+        base='legendre',
+        initializer=None,
+        **kwargs,
+    ):
         super(MWT_CZ1d, self).__init__()
 
         self.k = k
         self.L = L
+        # get filter matrices
         H0, H1, G0, G1, PHI0, PHI1 = get_filter(base, k)
+
+        # get reconstruction matrices
         H0r = H0 @ PHI0
         G0r = G0 @ PHI0
         H1r = H1 @ PHI1
         G1r = G1 @ PHI1
 
+        # filter out small values
         H0r[np.abs(H0r) < 1e-8] = 0
         H1r[np.abs(H1r) < 1e-8] = 0
         G0r[np.abs(G0r) < 1e-8] = 0
         G1r[np.abs(G1r) < 1e-8] = 0
         self.max_item = 3
 
+        # create FEB-f blocks
         self.A = sparseKernelFT1d(k, alpha, c)
         self.B = sparseKernelFT1d(k, alpha, c)
         self.C = sparseKernelFT1d(k, alpha, c)
 
         self.T0 = nn.Linear(k, k)
 
+        # decomposition filters
         self.register_buffer('ec_s', torch.Tensor(
             np.concatenate((H0.T, H1.T), axis=0)))
         self.register_buffer('ec_d', torch.Tensor(
             np.concatenate((G0.T, G1.T), axis=0)))
 
+        # reconstruction filters
         self.register_buffer('rc_e', torch.Tensor(
             np.concatenate((H0r, G0r), axis=0)))
         self.register_buffer('rc_o', torch.Tensor(
@@ -335,46 +386,64 @@ class MWT_CZ1d(nn.Module):
 
     def forward(self, x):
         B, N, c, k = x.shape  # (B, N, k)
+
+        # max n s.t. 2^n <= N
         ns = math.floor(np.log2(N))
+
         nl = pow(2, math.ceil(np.log2(N)))
+
+        # add zeros so length is some power of 2
         extra_x = x[:, 0:nl - N, :, :]
         x = torch.cat([x, extra_x], 1)
+
         Ud = torch.jit.annotate(List[Tensor], [])
         Us = torch.jit.annotate(List[Tensor], [])
-        #         decompose
+
+        # decompose; `i` is a scale;
+        # at the very first step we just use the original signal
         for i in range(ns - self.L):
-            # print('x shape',x.shape)
+            # x is s^i now
             d, x = self.wavelet_transform(x)
+
+            # apply low-pass filters to MWT coefficients
+            # and current x
+            # Ud: smaller resolution
+            # Us: larger resolution
             Ud += [self.A(d) + self.B(x)]
             Us += [self.C(d)]
+
         x = self.T0(x)  # coarsest scale transform
 
-        #        reconstruct
+        # reconstruct (from finest to coarsest scale)
         for i in range(ns - 1 - self.L, -1, -1):
             x = x + Us[i]
             x = torch.cat((x, Ud[i]), -1)
             x = self.evenOdd(x)
-        x = x[:, :N, :, :]
 
+        x = x[:, :N, :, :]
         return x
 
     def wavelet_transform(self, x):
+        """ One iteration of fast multiwavelet transform """
+        # donwsample x; cat two downsampled series
         xa = torch.cat([x[:, ::2, :, :],
                         x[:, 1::2, :, :],
                         ], -1)
+        # multuply by filters to get MWT coefficients
         d = torch.matmul(xa, self.ec_d)
         s = torch.matmul(xa, self.ec_s)
         return d, s
 
     def evenOdd(self, x):
-
         B, N, c, ich = x.shape  # (B, N, c, k)
         assert ich == 2 * self.k
+
         x_e = torch.matmul(x, self.rc_e)
         x_o = torch.matmul(x, self.rc_o)
 
         x = torch.zeros(B, N * 2, c, self.k,
                         device=x.device)
+
         x[..., ::2, :, :] = x_e
         x[..., 1::2, :, :] = x_o
         return x
